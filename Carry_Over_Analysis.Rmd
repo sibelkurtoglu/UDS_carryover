@@ -1,0 +1,354 @@
+---
+title: "Carryover Analysis"
+author: "Sibel Kurtoglu"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.height = 2.5)
+```
+
+
+```{r libraries}
+library(readxl)
+library(tidyverse)
+library(janitor)
+library(purrr)
+library(openxlsx2)
+library(kableExtra)
+```
+
+```{r readfiles, eval = FALSE}
+# path = "raw_data"
+# all_files <- list.files(path, pattern = "*.xlsx$")
+# # Use map_df to loop over all files and read each one into a dataframe
+# # Combine all dataframes into one, and add .id argument to include the file names
+# df_raw <- all_files %>% 
+#   set_names() %>%
+#   map_df(~ read_excel(file.path(path, .), col_types = c("RT" = "text")), .id = "file_name") %>%
+#   clean_names %>%
+#   select(file_name, sample_name, compound, type, calculated_amt) %>%
+#   mutate(calculated_amt = as.numeric(calculated_amt))
+# write.csv(df_raw, "df_raw.csv", row.names = FALSE)
+```
+
+```{r, readdfraw}
+df_raw <- read.csv("df_raw.csv")
+```
+
+
+```{r removeIS}
+# Identify unique compounds
+unique_compounds <- unique(df_raw$compound)
+
+# internal standards and real compounds
+IS_indices <- str_which(unique_compounds, "-d")
+IS_indices2 <- str_which(unique_compounds, ",d")
+IS_indices3 <- str_which(unique_compounds, "\\[13\\]")
+IS_indices <- c(IS_indices, IS_indices2, IS_indices3)
+#unique_compounds[-IS_indices]
+real_compounds <- unique_compounds[-IS_indices]
+real_compounds <- real_compounds[!is.na(real_compounds)]
+
+df_real <- df_raw %>%
+  filter(compound %in% real_compounds)
+```
+
+
+## Background
+
+Background information will go here.
+
+## Methodology
+ 
+## Data Analysis and Processing:
+
+
+Analysis was performed in the `r version$version.string` and the report generated using RMarkdown. Packages used were openxlsx, readxl, tidyverse, janitor and purrr.
+ 
+The dataset is comprised of UDS 137 instrument reports  from August 29, 2019, to June 28, 2023, from B4-190829 to B332-230628, that is batch 4 on 29-Aug-2019 to batch 332 on 28-Jun-2023. There were `r #length(all_files)` unique runs in the dataset on `r length(real_compounds)` different drugs. Total MRMs monitored in the method, including internal standards is `r length(unique_compounds)`.
+
+True analytes were distinguished from internal standard using regular expression matching for "-d" and "[13]C". 
+
+Data was subsetted by analyte over the `r length(real_compounds)` compound monitored. Data were ordered according to the order they were analyzed in. Consecutive samples that were positive (i.e. above the lowest calibrator) for a drug were identified and it was confirmed that these pairs of consecutive positive samples were i) from the same batch and ii) performed on different patients. 
+
+Concentration data from all paired consecutive positive tests for each analyte were then plotted in a scatterplot with sample N sample N + 1 vs sample N providing a visual representation of the data. This assists in identifying any patterns or anomalies that may represent carryover events. Rapid review of the figures is facilitated by overlay of regression lines. 
+
+
+## Results
+
+```{r}
+# empty dataframe
+cal_info <- data.frame(matrix(nrow = 0, ncol = 5))
+names(cal_info) <- c("drug", "low_cal_name", "low_cal_value", "high_cal_name", "high_cal_value")
+cal_info <- cal_info %>%
+  mutate_all(as.character)
+
+# Now you can use the str_detect function
+
+for(i in 1:length(real_compounds)) {
+  drug <- real_compounds[i]
+  high_cal_name <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    filter(str_detect(sample_name, "^Cal[[:space:]]{1}[0-9]{1}$")) %>%
+    pull(sample_name) %>%
+    unique() %>%
+    tail(1)
+  
+  high_cal_value <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    filter(sample_name == high_cal_name) %>%
+    pull(calculated_amt) %>%
+    mean(na.rm = TRUE) %>%
+    as.numeric()
+  
+  low_cal_name <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    filter(!str_detect(sample_name, "^Cal[[:space:]]{1}[0-9]{1}$")) %>%
+    pull(sample_name) %>%
+    unique()
+  
+  low_cal_name <- ifelse(is.null(low_cal_name), "No_Low_Cal", low_cal_name)
+  
+  low_cal_value <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    filter(sample_name == low_cal_name) %>%
+    pull(calculated_amt) %>%
+    mean(na.rm = TRUE) %>%
+    as.numeric()
+  
+  cal_info[i,] <- c(real_compounds[i], drug,low_cal_name, low_cal_value, high_cal_name, high_cal_value)
+}
+
+
+
+# Now you can use the replace_na function
+cal_info <- cal_info %>%
+  mutate(low_cal_value = replace_na(as.numeric(low_cal_value), 0)) %>%
+  mutate(high_cal_value = replace_na(as.numeric(high_cal_value), 0))
+
+```
+
+\newpage
+
+## Scatterplot Code
+
+```{r}
+
+# Geriye dönük pozitifleri saklamak için boş bir liste oluşturun
+
+ pos_after_pos_list <- list()
+
+# Tüm bileşikler için ggplotlar üretmek için döngü oluşturun
+for (i in 1:length(real_compounds)) {
+
+  # Belirli bileşik için veri çerçevesini filtreleyin
+  compound_df <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    mutate(casenumber = row_number()) %>%
+    relocate(casenumber, .before = sample_name) %>%
+    filter(str_detect(sample_name, "^[RE][0-9]{10}")) %>%
+    mutate(calculated_amt = replace_na(calculated_amt, 0)) %>%
+    arrange(casenumber) %>%
+    mutate(next_amt = lead(calculated_amt)) %>%
+    
+    mutate(next_file = lead(file_name)) %>%
+    relocate(next_file, .after = file_name) %>%
+    mutate(next_sample = lead(sample_name)) %>% 
+    relocate(next_sample, .after = sample_name)
+  
+  pos_after_pos <- compound_df %>%
+    filter((calculated_amt > cal_info$low_cal_value[i]) &  (next_amt > cal_info$low_cal_value[i]) & (file_name == next_file) & (sample_name != next_sample))
+  
+  # 'zero_after_pos' veri çerçevesinin boyutunu kontrol edin ve boşsa NULL olarak atayın
+  if (nrow(pos_after_pos) > 0) {
+    pos_after_pos_list[[i]] <- pos_after_pos
+  } else {
+    pos_after_pos_list[[i]] <- NULL
+  }
+
+  # En az 2 satırı olan bir veri çerçevesi varsa ggplot çizmek için kontrol edin
+  if (nrow(pos_after_pos) > 2) {
+   
+    # Bileşik için scatterplot oluşturun
+    correlation_value <- cor(pos_after_pos$calculated_amt, pos_after_pos$next_amt)
+    p <- ggplot(pos_after_pos, aes(x = calculated_amt, y = next_amt)) +
+      geom_point() +
+      geom_smooth(aes(y = next_amt),
+                  method = "lm",
+                  se = FALSE,
+                  color = "red") +
+      labs(
+        #
+        title = paste(
+          "Scatterplot of Measured Amount in \nSample (N + 1)  vs Sample N for",
+          real_compounds[i]
+        ),
+        x = "Measured Amount in Sample N",
+        y = "Measured Amount in Sample N + 1",
+        subtitle = paste("Correlation:", round(correlation_value, 2))
+      )
+
+
+    # Grafiği göster
+    print(p)
+    
+    # Create the directory if it does not exist
+    if(!dir.exists("scatterplot_data")){
+      dir.create("scatterplot_data")
+    }
+    
+    # Grafiği Excel dosyasına kaydetmek için
+    write_xlsx(pos_after_pos, file.path("scatterplot_data", paste0(real_compounds[i], ".xlsx")))
+  }
+}
+
+# Listeye bileşik isimlerini atayın
+names(pos_after_pos_list) <- real_compounds
+
+
+```
+
+\newpage
+
+## Histogram Code
+
+```{r}
+
+# Geriye dönük pozitifleri saklamak için boş bir liste oluşturun
+
+ zero_after_pos_list <- list()
+
+# Tüm bileşikler için ggplotlar üretmek için döngü oluşturun
+for (i in 1:length(real_compounds)) {
+
+  # Belirli bileşik için veri çerçevesini filtreleyin
+  compound_df <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    mutate(casenumber = row_number()) %>%
+    relocate(casenumber, .before = sample_name) %>%
+    filter(str_detect(sample_name, "^[RE][0-9]{10}")) %>%
+    mutate(calculated_amt = replace_na(calculated_amt, 0)) %>%
+    arrange(casenumber) %>%
+    mutate(next_amt = lead(calculated_amt)) %>%
+    
+    mutate(next_file = lead(file_name)) %>%
+    relocate(next_file, .after = file_name) %>%
+    mutate(next_sample = lead(sample_name)) %>% 
+    relocate(next_sample, .after = sample_name)
+  
+  zero_after_pos <- compound_df %>%
+    filter((calculated_amt > cal_info$low_cal_value[i]) &  (next_amt ==0) & (file_name == next_file) & (sample_name != next_sample))
+  
+  # 'zero_after_pos' veri çerçevesinin boyutunu kontrol edin ve boşsa NULL olarak atayın
+  if (nrow(zero_after_pos) > 0) {
+    zero_after_pos_list[[i]] <- zero_after_pos
+  } else {
+    zero_after_pos_list[[i]] <- NULL
+  }
+
+  # En az 2 satırı olan bir veri çerçevesi varsa ggplot çizmek için kontrol edin
+  if (nrow(zero_after_pos) > 2) {
+   
+    # Bileşik için scatterplot oluşturun
+    p <- ggplot(zero_after_pos, aes(x = calculated_amt)) +
+      geom_histogram() +
+      labs(
+        #
+        title = paste(
+          "put a title here",
+          real_compounds[i]
+        ),
+        x = "put an x label here",
+        y = "Count",
+      )
+
+
+    # Grafiği göster
+    print(p)
+
+  }
+}
+
+
+
+```
+
+\newpage
+
+## Results that are 0 after a Preceeding Positive
+
+Give me a plot of all the results that are 0 after a previously positive result. Make the plots
+
+
+
+```{r}
+# zero_after_pos_summ veri çerçevesini oluşturmak ve istatistikleri hesaplamak için kullanılan kodlar
+zero_after_pos_summ <- data.frame(matrix(nrow = 0, ncol = 9))
+names(zero_after_pos_summ) <- c("Drug", "Min", "p05", "1st_Qu.", "Median","3rd_Qu.", "p95", "Max", "Count")
+
+### use mutate_at to make columns 2-7 numeric
+zero_after_pos_summ <- zero_after_pos_summ %>% 
+  mutate_at(2:9, as.numeric) %>% 
+  mutate(Drug = as.character(Drug))
+
+for(i in 1:length(real_compounds)) {
+  compound_df <- df_real %>%
+    filter(compound == real_compounds[i]) %>%
+    mutate(casenumber = row_number()) %>%
+    relocate(casenumber, .before = sample_name) %>%
+    filter(str_detect(sample_name, "^[RE][0-9]{10}")) %>%
+    mutate(calculated_amt = replace_na(calculated_amt, 0)) %>%
+    arrange(casenumber) %>%
+    mutate(next_amt = lead(calculated_amt)) %>%
+    mutate(next_file = lead(file_name)) %>%
+    relocate(next_file, .after = file_name) %>%
+    mutate(next_sample = lead(sample_name)) %>% 
+    mutate(next_case = lead(casenumber)) %>% 
+    relocate(next_case, .after = casenumber) %>%
+    mutate(is_pos_zero_after = (calculated_amt > cal_info$high_cal_value[i]) & (calculated_amt > next_amt) & (next_amt == 0)) ### code added here ###
+  
+  zero_after_pos <- compound_df %>%  
+    filter(is_pos_zero_after == TRUE)
+  
+  compound_pos_zero_sum <- compound_df %>% 
+    group_by(compound) %>% 
+    summarize(positive_zero = sum(is_pos_zero_after, na.rm = TRUE)) ### code added here ###
+  
+  zero_after_pos <- compound_df %>%
+    filter((calculated_amt > cal_info$high_cal_value[i]) & (calculated_amt > next_amt) & (next_amt == 0) & (file_name == next_file) & (sample_name != next_sample))
+  
+  # Compute summary statistics
+  summary_stats <- c(quantile(zero_after_pos$calculated_amt, p = c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)), length(zero_after_pos$calculated_amt))
+  
+  compound_summ <- data.frame(matrix(nrow = 0, ncol = 9)) %>%
+    mutate_at(2:9, as.numeric) %>%
+    mutate_at(1, as.character)
+  names(compound_summ) <- c("Drug", "Min", "p05", "1st_Qu.", "Median","3rd_Qu.", "p95", "Max", "Count")
+  compound_summ[1,1] <- c(Drug = real_compounds[i])
+  compound_summ[1,2:9] <- c(summary_stats)
+  
+  # Put drug name in column 1 and summary statistics in columns 2-7
+  zero_after_pos_summ <- bind_rows(zero_after_pos_summ, compound_summ)
+}
+```
+
+```{r}
+# Convert zero_after_pos_summ to a kable object
+zero_after_pos_summ %>% 
+  kbl(booktabs = TRUE, longtable = TRUE, caption = "Summary Statistics for Each Compound", digits = 1) %>%
+  kable_styling(latex_options = c("striped"))
+```
+
+
+
+
+
+
+
+
