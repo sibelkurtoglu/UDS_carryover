@@ -2,3 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
+*.xlsx
+*.csv
+*.txt
+scatterplot_data
+raw_data
