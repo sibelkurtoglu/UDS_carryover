@@ -13,11 +13,6 @@ output:
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.height = 2.5)
 ```
 
-here is a change
-here is another change
-here is another change
-yes another change
-sibel wants to try a change.
 
 ```{r libraries}
 library(readxl)
@@ -26,7 +21,11 @@ library(janitor)
 library(purrr)
 library(openxlsx2)
 library(kableExtra)
+library(stringr)
+library(dplyr)
 ```
+
+
 
 ```{r readfiles, eval = FALSE}
 # path = "raw_data"
@@ -42,8 +41,29 @@ library(kableExtra)
 # write.csv(df_raw, "df_raw.csv", row.names = FALSE)
 ```
 
+
+
 ```{r, readdfraw}
-df_raw <- read.csv("df_raw.csv")
+df_raw <- read.csv("df_raw.csv") 
+# 
+# 
+# df_raw <- df_raw %>%
+#   
+#   #mutate(date_of_analysis = substr(file_name, start = 1, stop = 6)) %>%
+#   mutate(date_of_analysis = str_extract(file_name, "\\d{6}$")) %>%
+#   
+#   mutate(date_of_analysis = as.Date(date_of_analysis , format = "%y%m%d"))
+# 
+# print(df_raw)
+# 
+
+df_raw <- df_raw %>%
+  mutate(date_of_analysis = str_extract(file_name, "[0-9]{6}")) %>%
+  mutate(date_of_analysis = as.Date(date_of_analysis , format = "%y%m%d"))
+
+
+
+
 ```
 
 
@@ -141,13 +161,12 @@ cal_info <- cal_info %>%
 
 \newpage
 
-## Scatterplot Code
+#####MY CODE Scatterplot Code
 
 ```{r}
 
 # Geriye dönük pozitifleri saklamak için boş bir liste oluşturun
-
- pos_after_pos_list <- list()
+pos_after_pos_list <- list()
 
 # Tüm bileşikler için ggplotlar üretmek için döngü oluşturun
 for (i in 1:length(real_compounds)) {
@@ -179,9 +198,18 @@ for (i in 1:length(real_compounds)) {
 
   # En az 2 satırı olan bir veri çerçevesi varsa ggplot çizmek için kontrol edin
   if (nrow(pos_after_pos) > 2) {
+    
+    # Ensure the data is numeric and exclude NA values
+    compound_df$calculated_amt <- as.numeric(compound_df$calculated_amt)
+    compound_df$next_amt <- as.numeric(compound_df$next_amt)
+    compound_df <- na.omit(compound_df)
+    
+    # Correlation test
+    correlation_test <- cor.test(compound_df$calculated_amt, compound_df$next_amt)
+    correlation_value <- correlation_test$estimate["cor"]
+    correlation_CI <- correlation_test$conf.int
    
     # Bileşik için scatterplot oluşturun
-    correlation_value <- cor(pos_after_pos$calculated_amt, pos_after_pos$next_amt)
     p <- ggplot(pos_after_pos, aes(x = calculated_amt, y = next_amt)) +
       geom_point() +
       geom_smooth(aes(y = next_amt),
@@ -189,16 +217,15 @@ for (i in 1:length(real_compounds)) {
                   se = FALSE,
                   color = "red") +
       labs(
-        #
         title = paste(
           "Scatterplot of Measured Amount in \nSample (N + 1)  vs Sample N for",
           real_compounds[i]
         ),
         x = "Measured Amount in Sample N",
         y = "Measured Amount in Sample N + 1",
-        subtitle = paste("Correlation:", round(correlation_value, 2))
-      )
-
+        subtitle = paste("Correlation:", round(correlation_value, 2),
+                         "CI:", round(correlation_CI[1], 2), "-", round(correlation_CI[2], 2))
+      )   
 
     # Grafiği göster
     print(p)
@@ -215,25 +242,29 @@ for (i in 1:length(real_compounds)) {
 
 # Listeye bileşik isimlerini atayın
 names(pos_after_pos_list) <- real_compounds
+print(correlation_test$estimate)
+
+
 
 
 ```
 
+
 \newpage
 
-## Histogram Code
+
+
+
 
 ```{r}
 
-# Geriye dönük pozitifleri saklamak için boş bir liste oluşturun
+# Create an empty list to store the 'zero after positive' dataframes
+zero_after_pos_list <- list()
 
- zero_after_pos_list <- list()
-
-# Tüm bileşikler için ggplotlar üretmek için döngü oluşturun
+# Generate ggplots for all compounds
 for (i in 1:length(real_compounds)) {
-
-  # Belirli bileşik için veri çerçevesini filtreleyin
-  compound_df <- df_real %>%
+  # Filter the dataframe for a specific compound
+  compound_df <- df_raw %>%
     filter(compound == real_compounds[i]) %>%
     mutate(casenumber = row_number()) %>%
     relocate(casenumber, .before = sample_name) %>%
@@ -241,48 +272,79 @@ for (i in 1:length(real_compounds)) {
     mutate(calculated_amt = replace_na(calculated_amt, 0)) %>%
     arrange(casenumber) %>%
     mutate(next_amt = lead(calculated_amt)) %>%
-    
     mutate(next_file = lead(file_name)) %>%
     relocate(next_file, .after = file_name) %>%
-    mutate(next_sample = lead(sample_name)) %>% 
+    mutate(next_sample = lead(sample_name)) %>%
     relocate(next_sample, .after = sample_name)
   
   zero_after_pos <- compound_df %>%
-    filter((calculated_amt > cal_info$low_cal_value[i]) &  (next_amt ==0) & (file_name == next_file) & (sample_name != next_sample))
+    filter((calculated_amt > cal_info$low_cal_value[i]) &  (next_amt == 0) & (file_name == next_file) & (sample_name != next_sample))
   
-  # 'zero_after_pos' veri çerçevesinin boyutunu kontrol edin ve boşsa NULL olarak atayın
+  # Check the size of 'zero_after_pos' dataframe and assign it to NULL if it's empty
   if (nrow(zero_after_pos) > 0) {
     zero_after_pos_list[[i]] <- zero_after_pos
   } else {
     zero_after_pos_list[[i]] <- NULL
   }
+}
+names(zero_after_pos_list) <- real_compounds
+```
 
-  # En az 2 satırı olan bir veri çerçevesi varsa ggplot çizmek için kontrol edin
-  if (nrow(zero_after_pos) > 2) {
-   
-    # Bileşik için scatterplot oluşturun
-    p <- ggplot(zero_after_pos, aes(x = calculated_amt)) +
+## historgrams
+
+```{r}
+for(i in 1:length(zero_after_pos_list)){
+  plot_data <- zero_after_pos_list[[i]] %>%
+    filter(
+      date_of_analysis >= as.Date("2021-01-01") &
+      date_of_analysis <= as.Date("2023-12-31")
+    )
+  # Check if there's a dataframe with at least 2 rows to draw ggplot
+    p_hist <- ggplot(plot_data, aes(x = calculated_amt)) +
       geom_histogram() +
       labs(
-        #
         title = paste(
-          "put a title here",
+          "Histogram of the Measured Amount in Sample N for",
           real_compounds[i]
         ),
-        x = "put an x label here",
+        x = "Measured Amount in Sample N",
         y = "Count",
       )
 
-
-    # Grafiği göster
-    print(p)
-
+    # Print the plot
+    print(p_hist)
   }
-}
-
-
 
 ```
+
+
+# barcharts
+
+```{r}
+
+for(i in 1:length(zero_after_pos_list)) {
+  # Create a bar chart for zero after positive events
+  plot_data <- zero_after_pos_list[[i]] %>%
+    filter(
+      date_of_analysis >= as.Date("2021-01-01") &
+      date_of_analysis <= as.Date("2023-12-31")
+    )
+  p_bar <-
+    ggplot(plot_data, aes(x = date_of_analysis)) +
+    geom_bar() +
+    labs(
+      title = paste("Number of zero after positive events for", real_compounds[i]),
+      x = "Date",
+      y = "Number of zero after positive"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate X-axis labels
+  
+  # Print the bar chart
+  print(p_bar)
+}
+
+```
+
 
 \newpage
 
