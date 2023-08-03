@@ -161,7 +161,21 @@ cal_info <- cal_info %>%
 
 \newpage
 
-#####MY CODE Scatterplot Code
+## Scatterplots
+This R snippet creates a series of scatterplots for a dataset of chemical compounds. Here's what the scatterplots show and an explanation of the actions taken:
+The code is going through a list of compounds called real_compounds. It filters and organizes the data for each compound and calculates additional information such as 'next_amt', 'next_file', and 'next_sample'. The 'calculated_amt' and 'next_amt' fields represent consecutive measurements for compounds.
+
+A new 'pos_after_pos' data frame is created based on some conditions (such as the amounts are above a certain threshold, the filenames are the same, and the sample names are different). If the 'pos_after_pos' dataframe has more than 2 rows, a scatterplot is generated. This chart represents the relationship between the 'calculated_amt' (x-axis) and 'next_amt' (y-axis) of a given compound.
+Each point on the scatterplot represents a pair with consecutive measurements of the compound (calculated_amt and next_amt).
+A red line is drawn to show the trend of the relationship between the two variables (using geom_smooth(method = "lm")). The confidence interval of the correlation is also included.
+Labels and title are customized to identify the variables and the specific compound being plotted.
+If the scatterplot has been created, the 'pos_after_pos' data frame is saved as an Excel file in a specific directory ('scatterplot_data').
+
+Scatter plots visualize the relationship between the current and subsequent measured amounts of each compound, allowing researchers to understand patterns, trends, and correlations in the data.
+
+To summarize, these scatterplots help to visualize and analyze the relationship between consecutive measurements (calculated_amt and next_amt) for different compounds. This allows researchers to understand patterns, trends, and correlations in the data.
+
+
 
 ```{r}
 
@@ -290,7 +304,22 @@ for (i in 1:length(real_compounds)) {
 names(zero_after_pos_list) <- real_compounds
 ```
 
-## historgrams
+## Histograms
+
+The code snippet above analyzes "positive post-zero" events for certain chemical compounds and visualizes them as histograms.
+It processes and analyzes data from sequential measurements of chemical compounds. An empty list called 'zero_after_pos_list' is created, which will then be used to store data frames containing post-zero positive events. For each compound in the 'real_compounds' list, the following operations are performed:
+
+The data frame for the corresponding compound is filtered and edited.
+Changes in successive measurements are calculated (calculated_amt and next_amt).
+The data frame that meets certain conditions is placed into 'zero_after_pos' (for example, if a measurement is positive and the consecutive measurement is zero).
+If there is at least one row in the 'zero_after_pos' data frame, this data frame is added to the list.
+In this section, histograms are created using the data from the above operation: The following operations are performed for each data frame in the 'zero_after_pos_list' list:
+
+The data frame is filtered by date range (date_of_analysis).
+If the data frame has at least 2 rows, a histogram is plotted using ggplot.
+Each histogram is titled "Histogram of Measured Amount in Sample N" for a particular compound (where N represents the number of samples).
+The X-axis is labeled "Measured Amount in Sample N," and the Y-axis is labeled "Count."
+These histograms visualize the distribution of the measured quantities for each compound. Each bar represents the number of measurements in a given quantity range. This distribution can be used to analyze how the compound behaves in different samples.
 
 ```{r}
 for(i in 1:length(zero_after_pos_list)){
@@ -318,7 +347,17 @@ for(i in 1:length(zero_after_pos_list)){
 ```
 
 
-# barcharts
+## barcharts
+
+The code snippet above generates bar graphs for "zero after positive" events for certain chemical compounds.
+
+The code iterates through each dataframe in the 'zero_after_pos_list' list, which contains data for "positive after zero" events for various compounds.
+Data are filtered to include only events within the specified date range (1 Jan 2021 to 31 Dec 2023).
+A bar chart (p_bar) is created using ggplot with the date of analysis (date_of_analysis) on the x-axis and the number of "zero after positive" events on the y-axis.
+X-axis labels are rotated 45 degrees for better readability.
+The title of the chart indicates the specific compound and explains what the chart represents, in this case, the "Number of zeros after positive events."
+Each bar on the chart corresponds to a specific date and represents the number of times that "zero after positive" events occurred for that date.
+In summary, these bar charts provide a visual representation of the number of "zero after positive" events for each compound within a given date range. They allow for easy identification of trends or patterns over time that may indicate particular behaviors of compounds or possibly problems with measurement or data collection.
 
 ```{r}
 
