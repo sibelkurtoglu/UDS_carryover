@@ -261,8 +261,6 @@ names(pos_after_pos_list) <- real_compounds
 print(correlation_test$estimate)
 
 
-
-
 ```
 
 
@@ -455,9 +453,33 @@ zero_after_pos_summ %>%
 ```
 
 
+Lets see if we can find bone fide false positives from the reinjected samples
 
+```{r}
+reinjection_list <- list()
 
+# Generate ggplots for all compounds
+for (i in 1:length(real_compounds)) {
+  # Filter the dataframe for a specific compound
+  compound_df <- df_raw %>%
+    filter(compound == real_compounds[i]) %>%
+    mutate(casenumber = row_number()) %>%
+    relocate(casenumber, .before = sample_name) %>%
+    filter(str_detect(sample_name, "^[RE][0-9]{10}")) %>%
+    mutate(calculated_amt = replace_na(calculated_amt, 0)) %>%
+    arrange(casenumber) %>%
+    mutate(next_amt = lead(calculated_amt)) %>%
+    mutate(next_file = lead(file_name)) %>%
+    relocate(next_file, .after = file_name) %>%
+    mutate(next_sample = lead(sample_name)) %>%
+    relocate(next_sample, .after = sample_name)
+  
+  dup_sample_names <- unique(compound_df$sample_name[duplicated(compound_df$sample_name)])
+  reinjection_list[[i]] <- filter(compound_df, sample_name %in% dup_sample_names)
+  
 
+}
 
+```
 
 
