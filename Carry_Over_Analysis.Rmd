@@ -23,6 +23,7 @@ library(openxlsx2)
 library(kableExtra)
 library(stringr)
 library(dplyr)
+
 ```
 
 
@@ -453,9 +454,14 @@ zero_after_pos_summ %>%
 ```
 
 
-Lets see if we can find bone fide false positives from the reinjected samples
+## Possible carryover events based on replicate analyses.
+
+Samples that appear on multiple runs or have been re-injected are collected into a single excel spreadsheet for each compounds. The file is called "reinjected_samples.xlsx" and is stored in a subdirectory of the same name for more detailed review by professional staff.
+
 
 ```{r}
+library(writexl)
+library(fs)
 reinjection_list <- list()
 
 # Generate ggplots for all compounds
@@ -472,13 +478,42 @@ for (i in 1:length(real_compounds)) {
     mutate(next_file = lead(file_name)) %>%
     relocate(next_file, .after = file_name) %>%
     mutate(next_sample = lead(sample_name)) %>%
-    relocate(next_sample, .after = sample_name)
+    relocate(next_sample, .after = sample_name) 
   
   dup_sample_names <- unique(compound_df$sample_name[duplicated(compound_df$sample_name)])
-  reinjection_list[[i]] <- filter(compound_df, sample_name %in% dup_sample_names)
+  reinjection_list[[i]] <- filter(compound_df, sample_name %in% dup_sample_names) %>%
+    arrange(sample_name)
   
-
 }
+
+names(reinjection_list) <- real_compounds
+
+# Create directory if it doesn't exist
+dir_name <- "reinjected_samples"
+if (!dir_exists(dir_name)) {
+  dir_create(dir_name)
+}
+
+write_xlsx(reinjection_list, file.path("reinjected_samples", "reinjected_samples.xlsx"))
+
+
+# Print working directory
+dir_name <- getwd()
+print(dir_name)
+
+# Create file path
+dir_name <- "C:/Users/Sibel Kurtoglu/Documents/repos/UDS_carryover"
+file_name <- file.path(dir_name, "reinjected_samples.xlsx")
+
+# Write each compound to a separate sheet in the Excel file
+write_xlsx(reinjected_samples, path = file_name)
+
+# This code will write a single Excel file with one drug on each sheet from the reinjection list
+# It will also apply the correct drug name to every member of the reinjection_list list
+# A new directory called "reinjected_samples" will be created if it does not already exist
+# The directory will not be created if it already exists
+
+
 
 ```
 
